@@ -1,0 +1,5 @@
+{
+  "name": "Lunacy Protocol: Forensic Engine",
+  "description": "A high-fidelity tactical analysis engine for League of Legends. Combines Riot API telemetry with Gemini-powered cognitive state analysis to provide deep forensic insights into player mechanics, win probability swings, and slaughter velocity.",
+  "requestFramePermissions": ["microphone"]
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "noEmit": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ESNext"]
+  },
+  "include": ["server.ts", "src/riot.ts", "src/lunacyEngine.ts", "src/telemetry.ts"]
+}

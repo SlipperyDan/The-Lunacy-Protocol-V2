@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-void: #000000;
+  --color-signal: #28f06b;
+  --color-dim: #1a4d2e;
+  --color-danger: #ff4444;
+  --color-warning: #f27d26;
+}
+
+@layer base {
+  html, body {
+    height: 100%;
+    background-color: var(--color-void);
+    color: var(--color-signal);
+    font-family: var(--font-mono);
+    overflow-x: hidden;
+    text-shadow: 0 0 4px rgba(40, 240, 107, 0.4);
+  }
+
+  * {
+    border-radius: 0 !important;
+  }
+}
+
+@layer utilities {
+  .glitch-text {
+    position: relative;
+    color: var(--color-signal);
+  }
+
+  .glitch-text::before,
+  .glitch-text::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--color-void);
+    overflow: hidden;
+  }
+
+  .glitch-text::before {
+    left: 2px;
+    text-shadow: -1px 0 #ff00c1;
+    clip-path: inset(44% 0 61% 0);
+    animation: glitch-anim 4s infinite linear alternate-reverse;
+  }
+
+  .glitch-text::after {
+    left: -2px;
+    text-shadow: -1px 0 #00fff9;
+    clip-path: inset(10% 0 70% 0);
+    animation: glitch-anim 2s infinite linear alternate-reverse;
+  }
+
+  .crt-lines {
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 2px, 3px 100%;
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+  }
+
+  .scanline {
+    width: 100%;
+    height: 100px;
+    z-index: 101;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(40, 240, 107, 0.1) 50%, rgba(0, 0, 0, 0) 100%);
+    opacity: 0.1;
+    position: fixed;
+    bottom: 100%;
+    animation: scanline 10s linear infinite;
+  }
+
+  @keyframes scanline {
+    0% { bottom: 100%; }
+    100% { bottom: -100px; }
+  }
+
+  @keyframes glitch-anim {
+    0% { clip-path: inset(40% 0 61% 0); }
+    20% { clip-path: inset(92% 0 1% 0); }
+    40% { clip-path: inset(43% 0 1% 0); }
+    60% { clip-path: inset(25% 0 58% 0); }
+    80% { clip-path: inset(54% 0 7% 0); }
+    100% { clip-path: inset(58% 0 43% 0); }
+  }
+
+  .terminal-grid {
+    background-image: radial-gradient(var(--color-dim) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .terminal-tint {
+    filter: sepia(100%) hue-rotate(90deg) brightness(0.8) contrast(1.2);
+  }
+
+  .terminal-border {
+    border: 1px solid var(--color-dim);
+    box-shadow: inset 0 0 10px rgba(40, 240, 107, 0.1);
+  }
+}
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--color-void); border-left: 1px solid var(--color-dim); }
+::-webkit-scrollbar-thumb { background: var(--color-dim); border: 1px solid var(--color-void); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-signal); }
