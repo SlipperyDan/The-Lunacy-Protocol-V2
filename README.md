@@ -1,5 +1,5 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="TheLunacyLogoStatic.JPG" />
+<img width="1200" height="475" alt="GHBanner" src="The Hope Protocol.png" />
 </div>
 
 **Prerequisites:**  Node.js
