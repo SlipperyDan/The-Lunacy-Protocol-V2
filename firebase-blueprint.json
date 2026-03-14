@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Historical match data",
+      "type": "object",
+      "properties": {
+        "matchId": { "type": "string" },
+        "puuid": { "type": "string" },
+        "gameCreation": { "type": "number" },
+        "telemetry": { "type": "object" },
+        "analysis": { "type": "string" }
+      },
+      "required": ["matchId", "puuid"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "User profiles"
+    },
+    "/users/{userId}/matches/{matchId}": {
+      "schema": { "$ref": "Match" },
+      "description": "User's match history and analysis"
+    }
+  }
+}

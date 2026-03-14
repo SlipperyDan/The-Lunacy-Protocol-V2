@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI, Modality } from "@google/genai";
+import { auth, db, googleProvider } from './firebase';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { analyzeVideo, transcribeAudio } from './services/geminiService';
 import { 
   Activity, 
   Search, 
@@ -28,11 +32,18 @@ import {
   Tooltip, 
   ResponsiveContainer,
   AreaChart,
-  Area
+  Area,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis
 } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+import audioProcessorUrl from './audio-processor?url';
 
 function App() {
+  const [user, setUser] = useState<any>(null);
   const [telemetry, setTelemetry] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [gameName, setGameName] = useState('Banana Tyrant');
@@ -46,6 +57,64 @@ function App() {
   const [error, setError] = useState('');
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'live'>('dashboard');
+  const [analysisResult, setAnalysisResult] = useState<string>('');
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = (event.target?.result as string).split(',')[1];
+      const result = await analyzeVideo(base64, file.type, "Analyze this match video for mechanical skill and key moments.");
+      setAnalysisResult(result || "No analysis generated.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = (event.target?.result as string).split(',')[1];
+      const result = await transcribeAudio(base64, file.type);
+      setAnalysisResult(result || "No transcription generated.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Ensure user document exists
+        setDoc(doc(db, 'users', currentUser.uid), {
+          uid: currentUser.uid,
+          email: currentUser.email,
+          displayName: currentUser.displayName
+        }, { merge: true });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const getDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === 'audioinput');
+        setAvailableMicrophones(audioInputs);
+        if (audioInputs.length > 0 && !selectedMicrophoneId) {
+          setSelectedMicrophoneId(audioInputs[0].deviceId);
+        }
+      } catch (err) {
+        console.error("Error enumerating devices:", err);
+      }
+    };
+    getDevices();
+    navigator.mediaDevices.addEventListener('devicechange', getDevices);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+  }, []);
 
   const winProbData = useMemo(() => {
     if (!telemetry?.winProbabilityTimeline) return [];
@@ -55,8 +124,20 @@ function App() {
     }));
   }, [telemetry]);
 
+  const comparativeData = useMemo(() => {
+    if (!telemetry?.forensics) return [];
+    return [
+      { subject: 'Damage', A: parseFloat(telemetry.forensics.damageShare) || 0, fullMark: 100 },
+      { subject: 'Tank', A: parseFloat(telemetry.forensics.tankShare) || 0, fullMark: 100 },
+      { subject: 'Tower', A: parseFloat(telemetry.forensics.towerShare) || 0, fullMark: 100 },
+      { subject: 'Agency', A: parseFloat(telemetry.forensics.agencyRatio) || 0, fullMark: 100 },
+    ];
+  }, [telemetry]);
+
   // Live Transcription States
   const [isRecording, setIsRecording] = useState(false);
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState<string>('');
+  const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState<{time: string, text: string, isInterim?: boolean}[]>([]);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -64,7 +145,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const sessionRef = useRef<any>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const processorRef = useRef<AudioWorkletNode | null>(null);
 
   const fetchTelemetry = async () => {
     setLoading(true);
@@ -162,6 +243,19 @@ function App() {
       transcriptInputRef.current?.click();
   };
 
+  const getMicrophoneStream = async () => {
+      return await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+              deviceId: selectedMicrophoneId ? { exact: selectedMicrophoneId } : undefined,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              channelCount: 1,
+              sampleRate: 16000
+          } 
+      });
+  };
+
   const startLiveRecording = async () => {
       try {
           const apiKey = (window as any).process?.env?.GEMINI_API_KEY || (window as any).process?.env?.API_KEY;
@@ -171,15 +265,7 @@ function App() {
           }
 
           const ai = new GoogleGenAI({ apiKey });
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-              audio: {
-                  echoCancellation: true,
-                  noiseSuppression: true,
-                  autoGainControl: true,
-                  channelCount: 1,
-                  sampleRate: 16000
-              } 
-          });
+          const stream = await getMicrophoneStream();
           audioStreamRef.current = stream;
 
           const audioContext = new AudioContext({ sampleRate: 16000 });
@@ -188,8 +274,9 @@ function App() {
           }
           audioContextRef.current = audioContext;
           const source = audioContext.createMediaStreamSource(stream);
-          const processor = audioContext.createScriptProcessor(4096, 1, 1);
-          processorRef.current = processor;
+          await audioContext.audioWorklet.addModule(audioProcessorUrl);
+          const workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+          processorRef.current = workletNode;
 
           // Analyzer for VU Meter
           const analyser = audioContext.createAnalyser();
@@ -223,8 +310,6 @@ function App() {
                       setIsRecording(true);
                       recordingStartTime.current = Date.now();
                       setLiveTranscript([]);
-                      source.connect(processor);
-                      processor.connect(audioContext.destination);
                       updateLevel();
                   },
                   onmessage: (message: any) => {
@@ -255,6 +340,11 @@ function App() {
                   onclose: () => {
                       console.log("Live session closed");
                       setIsRecording(false);
+                      // Attempt to reconnect if recording is still intended
+                      if (isRecording) {
+                          console.log("Attempting to reconnect...");
+                          setTimeout(startLiveRecording, 2000);
+                      }
                   }
               }
           });
@@ -307,8 +397,8 @@ function App() {
 
           sessionRef.current = await sessionPromise;
 
-          processor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
+          workletNode.port.onmessage = (e) => {
+              const inputData = e.data;
               
               // Simple Noise Gate: Check if there's significant audio activity
               let hasActivity = false;
@@ -599,6 +689,29 @@ function App() {
         {/* Sidebar - Controls */}
         <aside className="w-80 border-r border-dim bg-void/50 backdrop-blur-md overflow-y-auto hidden xl:block p-6 space-y-8">
           <section>
+            <div className="mb-4">
+              {user ? (
+                <button onClick={() => signOut(auth)} className="w-full text-[10px] font-bold border border-dim py-2 hover:bg-danger hover:text-white transition-all">
+                  SIGN_OUT ({user.email})
+                </button>
+              ) : (
+                <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full text-[10px] font-bold border border-dim py-2 hover:bg-signal hover:text-void transition-all">
+                  SIGN_IN_WITH_GOOGLE
+                </button>
+              )}
+            </div>
+            <div className="mb-4">
+              <label className="text-[10px] text-dim font-bold">MICROPHONE</label>
+              <select 
+                value={selectedMicrophoneId}
+                onChange={(e) => setSelectedMicrophoneId(e.target.value)}
+                className="w-full bg-void border border-dim text-signal p-2 text-xs focus:outline-none focus:border-signal uppercase"
+              >
+                {availableMicrophones.map(mic => (
+                  <option key={mic.deviceId} value={mic.deviceId}>{mic.label || `Microphone ${mic.deviceId.slice(0, 5)}`}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-bold tracking-widest text-dim">[ TARGET_SEARCH ]</h2>
               <span className="text-[10px] text-dim font-bold">[SCAN]</span>
@@ -728,6 +841,26 @@ function App() {
                   ))}
                 </div>
 
+                {/* AI Analysis Section */}
+                <div className="bg-void border border-dim p-6">
+                  <h3 className="text-xs font-bold tracking-widest mb-4 text-signal">[AI_ANALYSIS]</h3>
+                  <div className="flex gap-4">
+                    <label className="cursor-pointer border border-dim p-2 text-[10px] font-bold hover:bg-signal hover:text-void">
+                      UPLOAD_VIDEO_ANALYSIS
+                      <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
+                    </label>
+                    <label className="cursor-pointer border border-dim p-2 text-[10px] font-bold hover:bg-signal hover:text-void">
+                      UPLOAD_AUDIO_TRANSCRIPTION
+                      <input type="file" accept="audio/*" className="hidden" onChange={handleAudioUpload} />
+                    </label>
+                  </div>
+                  {analysisResult && (
+                    <div className="mt-4 p-4 border border-dim text-xs text-dim font-mono">
+                      {analysisResult}
+                    </div>
+                  )}
+                </div>
+
                 {/* Charts Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <div className="lg:col-span-2 bg-void border border-dim p-6 space-y-6">
@@ -739,73 +872,70 @@ function App() {
                       <div className="text-[10px] text-dim font-bold">UNIT: PERCENTAGE (%)</div>
                     </div>
                     <div className="h-[300px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={winProbData}>
-                          <defs>
-                            <linearGradient id="colorProb" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#28f06b" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="#28f06b" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1a4d2e" vertical={false} />
-                          <XAxis 
-                            dataKey="minute" 
-                            stroke="#1a4d2e" 
-                            fontSize={10} 
-                            tickFormatter={(val) => `T+${val}`}
-                          />
-                          <YAxis 
-                            stroke="#1a4d2e" 
-                            fontSize={10} 
-                            domain={[0, 100]}
-                            tickFormatter={(val) => `${val}%`}
-                          />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: '#000', border: '1px solid #1a4d2e', fontSize: '10px' }}
-                            itemStyle={{ color: '#28f06b' }}
-                            labelFormatter={(val) => `MINUTE: ${val}`}
-                          />
-                          <Area 
-                            type="monotone" 
-                            dataKey="probability" 
-                            stroke="#28f06b" 
-                            fillOpacity={1} 
-                            fill="url(#colorProb)" 
-                            strokeWidth={2}
-                            animationDuration={1500}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                      {activeTab === 'dashboard' && (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={winProbData}>
+                            <defs>
+                              <linearGradient id="colorProb" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#28f06b" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#28f06b" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1a4d2e" vertical={false} />
+                            <XAxis 
+                              dataKey="minute" 
+                              stroke="#1a4d2e" 
+                              fontSize={10} 
+                              tickFormatter={(val) => `T+${val}`}
+                            />
+                            <YAxis 
+                              stroke="#1a4d2e" 
+                              fontSize={10} 
+                              domain={[0, 100]}
+                              tickFormatter={(val) => `${val}%`}
+                            />
+                            <Tooltip 
+                              contentStyle={{ backgroundColor: '#000', border: '1px solid #1a4d2e', fontSize: '10px' }}
+                              itemStyle={{ color: '#28f06b' }}
+                              labelFormatter={(val) => `MINUTE: ${val}`}
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="probability" 
+                              stroke="#28f06b" 
+                              fillOpacity={1} 
+                              fill="url(#colorProb)" 
+                              strokeWidth={2}
+                              animationDuration={1500}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
 
                   <div className="bg-void border border-dim p-6 flex flex-col">
                     <h3 className="text-xs font-bold tracking-widest mb-6 flex items-center gap-2">
                       <span className="text-signal">[METR]</span>
-                      SLAUGHTER_METRICS
+                      COMPARATIVE_IMPACT
                     </h3>
-                    <div className="flex-1 space-y-6">
-                      {[
-                        { label: 'SLAUGHTER_VELOCITY', value: telemetry?.forensics?.slaughterVelocity || '0', desc: 'Net impact per minute' },
-                        { label: 'CATALYST_SCORE', value: telemetry?.forensics?.catalystScore || '0', desc: 'Positive swing contribution' },
-                        { label: 'BLEED_RATE', value: telemetry?.forensics?.bleedRate || '0', desc: 'Negative swing contribution' },
-                        { label: 'PEAK_VELOCITY', value: telemetry?.forensics?.peakVelocity || '0', desc: 'Max single minute swing' },
-                      ].map((metric, i) => (
-                        <div key={i} className="space-y-1">
-                          <div className="flex justify-between items-end">
-                            <span className="text-[10px] font-bold text-dim">{metric.label}</span>
-                            <span className="text-sm font-bold text-signal">{metric.value}</span>
-                          </div>
-                          <div className="h-1 bg-dim/20 w-full">
-                            <motion.div 
-                              initial={{ width: 0 }}
-                              animate={{ width: `${Math.min(100, Math.abs(parseFloat(metric.value)) * 2)}%` }}
-                              className="h-full bg-signal"
+                    <div className="h-[250px] w-full">
+                      {activeTab === 'dashboard' && (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={comparativeData}>
+                            <PolarGrid stroke="#1a4d2e" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#8E9299', fontSize: 10 }} />
+                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                            <Radar
+                              name="Impact"
+                              dataKey="A"
+                              stroke="#28f06b"
+                              fill="#28f06b"
+                              fillOpacity={0.3}
                             />
-                          </div>
-                          <p className="text-[8px] text-dim italic">{metric.desc}</p>
-                        </div>
-                      ))}
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -17,6 +17,7 @@
     "@google/genai": "^1.34.0",
     "@vitejs/plugin-react": "^4.3.4",
     "express": "^4.19.2",
+    "firebase": "^12.10.0",
     "framer-motion": "^12.34.5",
     "lucide-react": "^0.576.0",
     "motion": "^12.34.5",

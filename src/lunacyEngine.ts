@@ -298,6 +298,12 @@ const calculateScores = (events: any[], participantId: number, startTime: number
 export const generateForensicData = async (matchId: string, targetPuuid: string, region: string = "americas", audioBuffer?: Buffer, audioMimeType?: string, transcript?: string) => {
     const match = await getMatchDetails(matchId, region);
     const timeline = await getMatchTimeline(matchId, region);
+    console.log(`[DEBUG] Timeline fetched: ${!!timeline}`);
+    if (timeline && timeline.info) {
+        console.log(`[DEBUG] Frames count: ${timeline.info.frames?.length || 0}`);
+    } else {
+        console.log(`[DEBUG] Timeline info missing`);
+    }
 
     if (!match || !timeline) throw new Error("MATCH_DATA_MISSING");
 
@@ -407,6 +413,7 @@ export const generateForensicData = async (matchId: string, targetPuuid: string,
     const itemMap = await getItemMap();
     
     const winProbs: number[] = [];
+    console.log(`[DEBUG] Frames length: ${frames.length}`);
     for (let i = 0; i < frames.length; i++) {
         const { t1Gold, t2Gold, t1Xp, t2Xp } = getTeamStatsAtMinute(frames, i);
         const pGold = calculateWinProbability(t1Gold, t2Gold);
@@ -415,6 +422,7 @@ export const generateForensicData = async (matchId: string, targetPuuid: string,
         if (!isTeam1) p1 = 1 - p1;
         winProbs.push(p1);
     }
+    console.log(`[DEBUG] WinProbs length: ${winProbs.length}`);
 
     for (let i = 0; i < frames.length - 1; i++) {
         const t = i;
