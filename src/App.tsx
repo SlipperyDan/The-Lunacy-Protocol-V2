@@ -258,7 +258,7 @@ function App() {
 
   const startLiveRecording = async () => {
       try {
-          const apiKey = (window as any).process?.env?.GEMINI_API_KEY || (window as any).process?.env?.API_KEY;
+          const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY;
           if (!apiKey) {
               setError("GEMINI_API_KEY_MISSING: Cannot start live transcription.");
               return;
