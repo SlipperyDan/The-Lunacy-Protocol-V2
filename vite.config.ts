@@ -6,9 +6,12 @@ export default defineConfig({
   plugins: [
     react()
   ],
-  base: '/',
+  base: '/The-Lunacy-Protocol-V2/',
   server: {
     port: 3000,
     host: '0.0.0.0'
+  },
+  define: {
+    'process.env': {}
   }
 })
